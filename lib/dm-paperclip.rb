@@ -38,6 +38,7 @@ require 'dm-paperclip/thumbnail'
 require 'dm-paperclip/storage'
 require 'dm-paperclip/interpolations'
 require 'dm-paperclip/attachment'
+require 'cocaine'
 
 # The base module that gets included in ActiveRecord::Base. See the
 # documentation for Paperclip::ClassMethods for more useful information.
@@ -122,40 +123,28 @@ module Paperclip
       }
     end
 
-    def path_for_command command #:nodoc:
-      if options[:image_magick_path]
-        warn("[DEPRECATION] :image_magick_path is deprecated and will be removed. Use :command_path instead")
-      end
-      path = [options[:command_path] || options[:image_magick_path], command].compact
-      File.join(*path)
-    end
-
     def interpolates key, &block
       Paperclip::Interpolations[key] = block
     end
 
-    # The run method takes a command to execute and a string of parameters
-    # that get passed to it. The command is prefixed with the :command_path
-    # option from Paperclip.options. If you have many commands to run and
-    # they are in different paths, the suggested course of action is to
-    # symlink them so they are all in the same directory.
+    # The run method takes the name of a binary to run, the arguments to that binary
+    # and some options:
     #
-    # If the command returns with a result code that is not one of the
-    # expected_outcodes, a PaperclipCommandLineError will be raised. Generally
-    # a code of 0 is expected, but a list of codes may be passed if necessary.
+    #   :command_path -> A $PATH-like variable that defines where to look for the binary
+    #                    on the filesystem. Colon-separated, just like $PATH.
     #
-    # This method can log the command being run when 
-    # Paperclip.options[:log_command] is set to true (defaults to false). This
-    # will only log if logging in general is set to true as well.
-    def run cmd, params = "", expected_outcodes = 0
-      command = %Q<#{%Q[#{path_for_command(cmd)} #{params}].gsub(/\s+/, " ")}>
-      command = "#{command} 2>#{bit_bucket}" if Paperclip.options[:swallow_stderr]
-      Paperclip.log(command) if Paperclip.options[:log_command]
-      output = `#{command}`
-      unless [expected_outcodes].flatten.include?($?.exitstatus)
-        raise PaperclipCommandLineError, "Error while running #{cmd}"
-      end
-      output
+    #   :expected_outcodes -> An array of integers that defines the expected exit codes
+    #                         of the binary. Defaults to [0].
+    #
+    #   :log_command -> Log the command being run when set to true (defaults to false).
+    #                   This will only log if logging in general is set to true as well.
+    #
+    #   :swallow_stderr -> Set to true if you don't care what happens on STDERR.
+    def run(cmd, arguments = "", local_options = {})
+      command_path = options[:command_path] 
+      Cocaine::CommandLine.path = ( Cocaine::CommandLine.path ? [Cocaine::CommandLine.path, command_path ].flatten : command_path )
+      local_options = local_options.merge(:logger => logger) if logging? && (options[:log_command] || local_options[:log_command])
+      Cocaine::CommandLine.new(cmd, arguments, local_options).run
     end
 
     def bit_bucket #:nodoc:
@@ -196,15 +185,15 @@ module Paperclip
   class PaperclipError < StandardError #:nodoc:
   end
 
-  class PaperclipCommandLineError < StandardError #:nodoc:
+  class PaperclipCommandNotFoundError < StandardError #:nodoc:
   end
 
   class NotIdentifiedByImageMagickError < PaperclipError #:nodoc:
   end
-  
+
   class InfiniteInterpolationError < PaperclipError #:nodoc:
   end
-  
+
   module Resource
 
     def self.included(base)

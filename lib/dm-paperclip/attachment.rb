@@ -102,6 +102,16 @@ module Paperclip
       validate
     end
 
+    def timestamp_to_i(dt)
+      if dt.respond_to? 'to_i' # Time Object
+       updated_at.to_i
+      elsif dt.respond_to? 'to_time' # DateTime, Ruby 1.9+
+        dt.to_time.to_i
+      else # DateTime, Ruby 1.8
+        dt.strftime('%s')
+      end
+    end
+
     # Returns the public URL of the attachment, with a given style. Note that
     # this does not necessarily need to point to a file that your web server
     # can access and can point to an action in your app, if you need fine
@@ -111,7 +121,7 @@ module Paperclip
     # update time appended to the url
     def url style = default_style, include_updated_timestamp = true
       the_url = original_filename.nil? ? interpolate(@default_url, style) : interpolate(@url, style)
-      include_updated_timestamp && updated_at ? [the_url, updated_at.respond_to?('to_i') ? updated_at.to_i : updated_at.to_time.to_i].compact.join(the_url.include?("?") ? "&" : "?") : the_url
+      include_updated_timestamp && updated_at ? [the_url, timestamp_to_i(updated_at)].compact.join(the_url.include?("?") ? "&" : "?") : the_url
     end
 
     # Returns the path of the attachment as defined by the :path option. If the
